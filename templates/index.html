@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подтверждение транзакции</title>
+    <!-- Подключаем библиотеку Solana Web3.js -->
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        .container { text-align: center; background-color: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; }
+        h1 { color: #1c1e21; }
+        p { color: #606770; font-size: 16px; }
+        button { background-color: #1877f2; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background-color 0.3s; margin-top: 20px;}
+        button:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: #166fe5; }
+        #status { margin-top: 20px; font-weight: bold; }
+        #status a { color: #1877f2; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Подтверждение заморозки</h1>
+        <p>Для заморозки <strong>{{ amount_display }} SDCB</strong> на кошельке <strong>{{ user_wallet[:6] }}...{{ user_wallet[-4:] }}</strong>, пожалуйста, подключите кошелек и подпишите транзакцию.</p>
+        
+        <button id="connectButton">Подключить кошелек</button>
+        <button id="lockButton" disabled>🔒 Заморозить токены</button>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // --- ОСНОВНЫЕ ПЕРЕМЕННЫЕ ---
+        const connectButton = document.getElementById('connectButton');
+        const lockButton = document.getElementById('lockButton');
+        const statusDiv = document.getElementById('status');
+        
+        // Получаем данные из URL, переданные через Jinja2
+        const userWallet = "{{ user_wallet }}";
+        const amountToLock = BigInt("{{ amount or 0 }}");
+        const telegramId = "{{ tg_id }}";
+
+        // Константы из нашего контракта и сети
+        const PROGRAM_ID = new solanaWeb3.PublicKey("8cSiKf4CX2gxSyvvWmNZRxRifqX7GUXHzwE3b1jmzfX4");
+        const TOKEN_MINT_ADDRESS = new solanaWeb3.PublicKey("AKzCnZFRTab25UuN2iLTzgjoeDxJuBLCXZwchFTkAbWz");
+        const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'), 'confirmed');
+        const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("{{ assoc_token_program_id }}");
+
+        let provider;
+        let connectedWalletPubkey;
+
+        // --- ЛОГИКА РАБОТЫ ---
+
+        window.addEventListener('load', async () => {
+            // Проверяем, есть ли Phantom кошелек
+            if ('solana' in window && window.solana.isPhantom) {
+                provider = window.solana;
+            } else {
+                statusDiv.innerHTML = "Пожалуйста, установите кошелек Phantom или Solflare.";
+                connectButton.disabled = true;
+            }
+        });
+
+        connectButton.addEventListener('click', async () => {
+            try {
+                const resp = await provider.connect();
+                connectedWalletPubkey = resp.publicKey;
+                statusDiv.innerHTML = `Кошелек подключен: <br>${connectedWalletPubkey.toBase58().substring(0, 6)}...`;
+                connectButton.style.display = 'none'; // Скрываем кнопку подключения
+                lockButton.disabled = false; // Активируем кнопку заморозки
+
+                // Проверка, что подключенный кошелек совпадает с тем, что в боте
+                if (connectedWalletPubkey.toBase58() !== userWallet) {
+                    statusDiv.innerHTML = `<b>Ошибка:</b> Подключенный кошелек (${connectedWalletPubkey.toBase58().substring(0,4)}...)<br>не совпадает с кошельком из Telegram (${userWallet.substring(0,4)}...).<br>Пожалуйста, подключите правильный кошелек.`;
+                    lockButton.disabled = true;
+                }
+            } catch (err) {
+                statusDiv.textContent = `Ошибка подключения: ${err.message}`;
+            }
+        });
+
+        lockButton.addEventListener('click', async () => {
+            if (!provider || !connectedWalletPubkey) {
+                statusDiv.textContent = 'Сначала подключите кошелек.';
+                return;
+            }
+            
+            statusDiv.textContent = 'Создание транзакции...';
+
+            try {
+                // 1. Находим PDA для хранения данных о блокировке (та же логика, что и в Python)
+                const [lockPda, _] = await solanaWeb3.PublicKey.findProgramAddress(
+                    [Buffer.from("lock"), connectedWalletPubkey.toBuffer()],
+                    PROGRAM_ID
+                );
+
+                // 2. Находим Associated Token Account (ATA) пользователя
+                const userAta = await solanaWeb3.PublicKey.findProgramAddress(
+                    [
+                        connectedWalletPubkey.toBuffer(),
+                        new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBuffer(),
+                        TOKEN_MINT_ADDRESS.toBuffer()
+                    ],
+                    ASSOCIATED_TOKEN_PROGRAM_ID
+                );
+
+                // 3. Находим Associated Token Account для PDA (куда переведем токены)
+                const pdaAta = await solanaWeb3.PublicKey.findProgramAddress(
+                    [
+                        lockPda.toBuffer(),
+                        new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBuffer(),
+                        TOKEN_MINT_ADDRESS.toBuffer()
+                    ],
+                    ASSOCIATED_TOKEN_PROGRAM_ID
+                );
+
+                // 4. Создаем инструкцию
+                // Instruction data: 8 байт для amount. Первый байт `0` - это индекс нашей инструкции LockTokens
+                const instructionData = Buffer.alloc(9);
+                instructionData.writeUInt8(0, 0); // Индекс инструкции
+                instructionData.writeBigUInt64LE(amountToLock, 1); // Сумма
+
+                const instruction = new solanaWeb3.TransactionInstruction({
+                    keys: [
+                        { pubkey: connectedWalletPubkey, isSigner: true, isWritable: false },
+                        { pubkey: lockPda, isSigner: false, isWritable: true },
+                        { pubkey: userAta[0], isSigner: false, isWritable: true },
+                        { pubkey: pdaAta[0], isSigner: false, isWritable: true },
+                        { pubkey: connectedWalletPubkey, isSigner: false, isWritable: false }, // authority
+                        { pubkey: new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"), isSigner: false, isWritable: false },
+                        { pubkey: solanaWeb3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+                        { pubkey: solanaWeb3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+                    ],
+                    programId: PROGRAM_ID,
+                    data: instructionData,
+                });
+
+                // 4. Создаем и отправляем транзакцию
+                const transaction = new solanaWeb3.Transaction().add(instruction);
+                transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+                transaction.feePayer = connectedWalletPubkey;
+
+                statusDiv.textContent = 'Пожалуйста, подпишите транзакцию в вашем кошельке...';
+                
+                const { signature } = await provider.signAndSendTransaction(transaction);
+                
+                statusDiv.innerHTML = `Транзакция отправлена! Ожидаем подтверждения...<br><a href="https://explorer.solana.com/tx/${signature}?cluster=mainnet-beta" target="_blank">Посмотреть в эксплорере</a>`;
+
+                // Сообщаем backend о транзакции для отправки уведомления в Telegram
+                try {
+                    await fetch('/tx_callback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tg_id: telegramId, signature })
+                    });
+                } catch (err) { console.error('callback error', err); }
+
+                await connection.confirmTransaction(signature);
+
+                statusDiv.innerHTML = `✅ Успешно! Токены заморожены.<br><a href="https://explorer.solana.com/tx/${signature}?cluster=mainnet-beta" target="_blank">Посмотреть в эксплорере</a>`;
+                lockButton.disabled = true;
+
+            } catch (error) {
+                console.error(error);
+                statusDiv.textContent = `❌ Ошибка: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html> 

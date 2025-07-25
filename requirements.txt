@@ -1,0 +1,10 @@
+python-telegram-bot[ext]
+python-dotenv
+web3
+solana
+borsh
+construct
+fastapi
+uvicorn
+Jinja2
+python-multipart 

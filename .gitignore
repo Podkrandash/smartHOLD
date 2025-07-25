@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv/
+
+# Database
+bot_database.db
+
+# Rust
+/smart-contract/target/
+/smart-contract/id.json
+# Рекомендуется сохранять Cargo.lock для воспроизводимости сборок.
+# Если вы не хотите его отслеживать, раскомментируйте строку ниже.
+# /smart-contract/Cargo.lock
+
+# Скомпилированные смарт-контракты
+*.so
+/smart-contract/Скомпилированный контракт/
+
+# Папки IDE
+.idea/
+.vscode/ 

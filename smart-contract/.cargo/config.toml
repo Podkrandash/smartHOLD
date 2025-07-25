@@ -1,0 +1,2 @@
+[target.'cfg(all(target_arch = "bpf", target_os = "solana"))']
+rustflags = ["-C", "link-arg=-z", "-C", "link-arg=keep-text-section-symbols"] 
