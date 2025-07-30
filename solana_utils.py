@@ -101,7 +101,7 @@ async def get_token_balance(user_pubkey: Pubkey) -> Tuple[Optional[int], int]:
             mint=TOKEN_MINT_ADDRESS
         )
         print(f"INFO: Checking balance for ATA: {ata_pubkey}")
-
+        
         # Запрашиваем баланс
         balance_response = solana_client.get_token_account_balance(ata_pubkey)
         
