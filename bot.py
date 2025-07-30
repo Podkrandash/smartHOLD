@@ -85,11 +85,16 @@ async def lock_tokens_start(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         user_pubkey = Pubkey.from_string(wallet_address)
-        balance = await solana_utils.get_token_balance(user_pubkey)
+        balance, decimals = await solana_utils.get_token_balance(user_pubkey)
         
-        # TODO: Учесть decimals
+        if balance is None:
+            await update.message.reply_text("Не удалось получить баланс. Возможно, у вас еще нет токенов SDCB или произошла ошибка в сети. Попробуйте позже.")
+            return ConversationHandler.END
+
+        ui_balance = balance / (10**decimals)
+        
         await update.message.reply_text(
-            f"Ваш текущий баланс: {balance} SDCB.\n\n"
+            f"Ваш текущий баланс: {ui_balance:.4f} SDCB.\n\n"
             "Сколько токенов вы хотите заморозить? Отправьте сумму числом."
         )
         return LOCK_AMOUNT
@@ -105,23 +110,28 @@ async def get_lock_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     wallet_address = db.get_wallet(user_id)
     
-    DECIMALS = 9  # TODO: получить динамически
-
     try:
+        # Получаем баланс и decimals еще раз для свежей проверки
+        user_pubkey = Pubkey.from_string(wallet_address)
+        balance, decimals = await solana_utils.get_token_balance(user_pubkey)
+
+        if balance is None:
+            await update.message.reply_text("Не удалось проверить баланс. Попробуйте начать заново.")
+            return ConversationHandler.END
+            
         ui_amount = float(update.message.text.replace(',', '.'))
         if ui_amount <= 0:
-            raise ValueError
-    except ValueError:
+            raise ValueError("Amount must be positive")
+    except (ValueError, TypeError):
         await update.message.reply_text("Пожалуйста, введите корректное число (например: 100.5).")
         return LOCK_AMOUNT
 
-    raw_amount = int(ui_amount * 10**DECIMALS)
+    raw_amount = int(ui_amount * (10**decimals))
 
     # Проверяем баланс
-    user_pubkey = Pubkey.from_string(wallet_address)
-    balance = await solana_utils.get_token_balance(user_pubkey)
     if raw_amount > balance:
-        await update.message.reply_text("Недостаточно токенов на балансе. Введите сумму меньше.")
+        ui_balance = balance / (10**decimals)
+        await update.message.reply_text(f"Недостаточно токенов на балансе. Ваш баланс: {ui_balance:.4f} SDCB. Введите сумму меньше.")
         return LOCK_AMOUNT
     
     # Замените на адрес вашего публичного сервера, когда он будет

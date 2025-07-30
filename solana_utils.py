@@ -73,22 +73,52 @@ async def get_lock_details(pda: Pubkey) -> Optional[LockDetails]:
         print(f"Error getting lock details: {e}")
         return None
 
-async def get_token_balance(user_pubkey: Pubkey) -> int:
-    """Получает баланс токена SDCB для указанного кошелька."""
+async def get_token_decimals(mint_pubkey: Pubkey) -> int:
+    """Получает количество десятичных знаков для токена."""
+    try:
+        mint_info = solana_client.get_account_info(mint_pubkey)
+        if mint_info.value is None:
+            raise ValueError("Mint account not found")
+        
+        # Десериализуем данные аккаунта минта, чтобы получить decimals
+        # Структура Mint account: https://spl.solana.com/token#show-layout
+        # decimals находятся в байте 44 (индекс 44)
+        data = mint_info.value.data
+        decimals = data[44]
+        return decimals
+    except Exception as e:
+        print(f"Error getting token decimals for {mint_pubkey}: {e}")
+        # Возвращаем значение по умолчанию, если не удалось получить
+        return 9 
+
+async def get_token_balance(user_pubkey: Pubkey) -> Tuple[Optional[int], int]:
+    """Получает баланс токена SDCB и его decimals."""
+    decimals = await get_token_decimals(TOKEN_MINT_ADDRESS)
     try:
         # Находим адрес связанного токен-аккаунта (ATA)
         ata_pubkey = Token.get_associated_token_address(
             owner=user_pubkey,
             mint=TOKEN_MINT_ADDRESS
         )
-        
+        print(f"INFO: Checking balance for ATA: {ata_pubkey}")
+
         # Запрашиваем баланс
         balance_response = solana_client.get_token_account_balance(ata_pubkey)
+        
+        if balance_response.value is None:
+             print(f"WARNING: No balance found for ATA {ata_pubkey}. It might not exist.")
+             return None, decimals
+
         balance = int(balance_response.value.amount)
-        return balance
+        print(f"INFO: Raw balance for {user_pubkey} is {balance}")
+        return balance, decimals
+
     except Exception as e:
-        print(f"Error getting token balance: {e}")
-        return 0
+        # Логируем ошибку, чтобы видеть, что пошло не так
+        print(f"ERROR: Could not get token balance for wallet {user_pubkey}. Reason: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, decimals
 
 # Другие функции для создания транзакций (lock, unlock, claim) будут добавлены здесь.
 # Например, функция для создания инструкции блокировки:
