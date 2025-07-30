@@ -7,7 +7,4 @@ construct
 fastapi
 uvicorn
 Jinja2
-python-multipart
-qrcode
-pillow
-aiohttp 
+python-multipart 

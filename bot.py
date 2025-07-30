@@ -7,7 +7,6 @@ import db
 import solana_utils
 from solders.pubkey import Pubkey
 import datetime
-import wallet_connect
 
 # Настройка логирования
 logging.basicConfig(
@@ -17,8 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Состояния для диалога
 WALLET_CONNECT = 1
-WALLET_CONNECT_QR = 2
-LOCK_AMOUNT = 3
+LOCK_AMOUNT = 2
 
 # --- Функции-обработчики ---
 
@@ -40,7 +38,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text = f"Здравствуйте, {user.first_name}! Для начала работы, пожалуйста, подключите ваш кошелек Solana."
         keyboard = [
             [KeyboardButton("🔗 Подключить кошелек")],
-            [KeyboardButton("📱 Подключить через QR-код")],
         ]
         
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -50,69 +47,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def connect_wallet_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Запрашивает у пользователя адрес кошелька."""
     await update.message.reply_text(
-        "Пожалуйста, отправьте мне адрес вашего кошелька Solana."
+        "Пожалуйста, отправьте мне адрес вашего кошелька Solana.\n\n"
+        "💡 **Как найти адрес кошелька:**\n"
+        "• Phantom: Настройки → Безопасность → Показать приватный ключ\n"
+        "• Solflare: Настройки → Экспорт → Публичный ключ\n"
+        "• Backpack: Настройки → Кошелек → Адрес"
     )
     return WALLET_CONNECT
-
-async def connect_wallet_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Создает QR-код для подключения кошелька через WalletConnect."""
-    instructions = wallet_connect.get_connection_instructions()
-    await update.message.reply_text(instructions, parse_mode='Markdown')
-    
-    try:
-        # Создаем QR-код
-        qr_code, session_id, deep_link = await wallet_connect.connect_wallet_via_qr()
-        
-        # Сохраняем session_id в контексте
-        context.user_data['session_id'] = session_id
-        
-        # Отправляем QR-код
-        await update.message.reply_photo(
-            photo=qr_code,
-            caption=f"🔗 **Код подключения:** `{session_id}`\n\n"
-                   f"Отсканируйте QR-код или введите код в вашем кошельке Solana"
-        )
-        
-        # Запускаем проверку подключения
-        await check_connection_periodically(update, context)
-        
-        return WALLET_CONNECT_QR
-        
-    except Exception as e:
-        logger.error(f"Ошибка при создании QR-кода: {e}")
-        await update.message.reply_text("Произошла ошибка при создании QR-кода. Попробуйте подключить кошелек вручную.")
-        return ConversationHandler.END
-
-async def check_connection_periodically(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Периодически проверяет подключение кошелька."""
-    session_id = context.user_data.get('session_id')
-    if not session_id:
-        return
-    
-    try:
-        # Проверяем подключение
-        wallet_address = await wallet_connect.simulate_wallet_connection(session_id)
-        
-        if wallet_address:
-            # Сохраняем адрес кошелька
-            user_id = update.effective_user.id
-            db.link_wallet(user_id, wallet_address)
-            
-            await update.message.reply_text(
-                f"✅ **Кошелек успешно подключен!**\n\n"
-                f"🔗 Адрес: `{wallet_address[:6]}...{wallet_address[-4:]}`\n\n"
-                f"Теперь вы можете замораживать токены и получать награды!",
-                parse_mode='Markdown'
-            )
-            
-            # Возвращаемся в главное меню
-            await start(update, context)
-            return ConversationHandler.END
-            
-    except Exception as e:
-        logger.error(f"Ошибка при проверке подключения: {e}")
-        await update.message.reply_text("Произошла ошибка при проверке подключения. Попробуйте еще раз.")
-        return ConversationHandler.END
 
 async def connect_wallet_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняет адрес кошелька."""
@@ -123,14 +64,35 @@ async def connect_wallet_save(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         _ = Pubkey.from_string(wallet_address)
     except Exception:
-        await update.message.reply_text("Похоже, это некорректный адрес Solana. Попробуйте ещё раз.")
+        await update.message.reply_text("❌ Похоже, это некорректный адрес Solana. Попробуйте ещё раз.")
         return WALLET_CONNECT
 
-    db.link_wallet(user_id, wallet_address)
+    # Проверяем, есть ли токены на кошельке
+    try:
+        user_pubkey = Pubkey.from_string(wallet_address)
+        balance, decimals = await solana_utils.get_token_balance(user_pubkey)
+        
+        if balance is None:
+            await update.message.reply_text(
+                "⚠️ Кошелек подключен, но не удалось проверить баланс токенов SDCB.\n"
+                "Возможно, у вас еще нет токенов или они находятся в другой сети."
+            )
+        else:
+            ui_balance = balance / (10**decimals)
+            await update.message.reply_text(
+                f"✅ Кошелек успешно подключен!\n\n"
+                f"🔗 Адрес: `{wallet_address[:6]}...{wallet_address[-4:]}`\n"
+                f"💰 Баланс SDCB: `{ui_balance:.4f}`",
+                parse_mode='Markdown'
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при проверке баланса: {e}")
+        await update.message.reply_text(
+            "✅ Кошелек подключен, но не удалось проверить баланс.\n"
+            "Попробуйте позже или обратитесь в поддержку."
+        )
 
-    await update.message.reply_text(
-        f"Ваш кошелек {wallet_address} успешно подключен!"
-    )
+    db.link_wallet(user_id, wallet_address)
     
     # Возвращаемся в главное меню
     await start(update, context)
@@ -335,15 +297,6 @@ def main() -> None:
         fallbacks=[CommandHandler('start', start)],
     )
 
-    # Диалог для подключения кошелька через QR-код
-    wallet_qr_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex('^📱 Подключить через QR-код$'), connect_wallet_qr)],
-        states={
-            WALLET_CONNECT_QR: [MessageHandler(filters.TEXT & ~filters.COMMAND, check_connection_periodically)],
-        },
-        fallbacks=[CommandHandler('start', start)],
-    )
-
     # Диалог для заморозки токенов
     lock_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex('^🔒 Заморозить токены$'), lock_tokens_start)],
@@ -354,7 +307,6 @@ def main() -> None:
     )
     
     application.add_handler(wallet_conv_handler)
-    application.add_handler(wallet_qr_conv_handler)
     application.add_handler(lock_conv_handler)
 
     # Обработчики кнопок главного меню
