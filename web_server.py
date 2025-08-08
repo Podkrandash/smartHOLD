@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from typing import Optional
+from telegram import Bot
+import config
 
 app = FastAPI()
 
@@ -33,7 +35,9 @@ async def read_root(
         "user_wallet": user_wallet,
         "amount": amount,
         "amount_display": amount_display,
-        "assoc_token_program_id": config.ASSOCIATED_TOKEN_PROGRAM_ID
+        "assoc_token_program_id": config.ASSOCIATED_TOKEN_PROGRAM_ID,
+        "program_id": config.PROGRAM_ID,
+        "mint_address": config.TOKEN_MINT_ADDRESS
     }
     return templates.TemplateResponse("index.html", context)
 
@@ -57,9 +61,6 @@ async def claim_page(
     return templates.TemplateResponse("claim.html", context)
 
 # --- Callback от фронта после отправки транзакции ---
-from telegram import Bot
-import config
-
 bot = Bot(token=config.TELEGRAM_TOKEN)
 
 @app.post("/tx_callback")
@@ -78,7 +79,7 @@ async def tx_callback(request: Request):
             text = f"✅ Награды получены!\nТранзакция: {explorer_link}"
         else:
             text = f"✅ Заморозка подтверждена!\nТранзакция: {explorer_link}"
-        bot.send_message(chat_id=telegram_id, text=text)
+        await bot.send_message(chat_id=telegram_id, text=text)
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "reason": str(e)}

@@ -67,30 +67,19 @@ async def connect_wallet_save(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("❌ Похоже, это некорректный адрес Solana. Попробуйте ещё раз.")
         return WALLET_CONNECT
 
-    # Проверяем, есть ли токены на кошельке
+    # Всегда показываем фиксированный баланс (демо)
     try:
-        user_pubkey = Pubkey.from_string(wallet_address)
-        balance, decimals = await solana_utils.get_token_balance(user_pubkey)
-        
-        if balance is None:
-            await update.message.reply_text(
-                "⚠️ Кошелек подключен, но не удалось проверить баланс токенов SDCB.\n"
-                "Возможно, у вас еще нет токенов или они находятся в другой сети."
-            )
-        else:
-            ui_balance = balance / (10**decimals)
-            await update.message.reply_text(
-                f"✅ Кошелек успешно подключен!\n\n"
-                f"🔗 Адрес: `{wallet_address[:6]}...{wallet_address[-4:]}`\n"
-                f"💰 Баланс SDCB: `{ui_balance:.4f}`",
-                parse_mode='Markdown'
-            )
-    except Exception as e:
-        logger.error(f"Ошибка при проверке баланса: {e}")
+        _ = Pubkey.from_string(wallet_address)
         await update.message.reply_text(
-            "✅ Кошелек подключен, но не удалось проверить баланс.\n"
-            "Попробуйте позже или обратитесь в поддержку."
+            f"✅ Кошелек успешно подключен!\n\n"
+            f"🔗 Адрес: `{wallet_address[:6]}...{wallet_address[-4:]}`\n"
+            f"💰 Баланс SDCB: `2,34`",
+            parse_mode='Markdown'
         )
+    except Exception as e:
+        logger.error(f"Ошибка при обработке адреса: {e}")
+        await update.message.reply_text("❌ Похоже, это некорректный адрес Solana. Попробуйте ещё раз.")
+        return WALLET_CONNECT
 
     db.link_wallet(user_id, wallet_address)
     
@@ -159,8 +148,8 @@ async def get_lock_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(f"Недостаточно токенов на балансе. Ваш баланс: {ui_balance:.4f} SDCB. Введите сумму меньше.")
         return LOCK_AMOUNT
     
-    # Замените на адрес вашего публичного сервера, когда он будет
-    base_url = "http://127.0.0.1:8000" 
+    # Адрес вашего сервера (из конфига)
+    base_url = config.SERVER_BASE_URL 
     
     # Формируем URL с параметрами
     import urllib.parse
@@ -258,7 +247,7 @@ async def claim_rewards(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rewards_display = rewards / 10**9
         
         # Генерируем ссылку для подписи
-        base_url = "http://127.0.0.1:8000"
+        base_url = config.SERVER_BASE_URL
         
         import urllib.parse
         params = urllib.parse.urlencode({

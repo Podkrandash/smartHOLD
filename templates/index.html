@@ -27,6 +27,7 @@
         <button id="lockButton" disabled>🔒 Заморозить токены</button>
 
         <div id="status"></div>
+        <p id="walletBalance" style="margin-top: 12px;"></p>
     </div>
 
     <script>
@@ -41,10 +42,11 @@
         const telegramId = "{{ tg_id }}";
 
         // Константы из нашего контракта и сети
-        const PROGRAM_ID = new solanaWeb3.PublicKey("8cSiKf4CX2gxSyvvWmNZRxRifqX7GUXHzwE3b1jmzfX4");
-        const TOKEN_MINT_ADDRESS = new solanaWeb3.PublicKey("AKzCnZFRTab25UuN2iLTzgjoeDxJuBLCXZwchFTkAbWz");
+        const PROGRAM_ID = new solanaWeb3.PublicKey("{{ program_id }}");
+        const TOKEN_MINT_ADDRESS = new solanaWeb3.PublicKey("{{ mint_address }}");
         const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'), 'confirmed');
         const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("{{ assoc_token_program_id }}");
+        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
         let provider;
         let connectedWalletPubkey;
@@ -66,14 +68,19 @@
                 const resp = await provider.connect();
                 connectedWalletPubkey = resp.publicKey;
                 statusDiv.innerHTML = `Кошелек подключен: <br>${connectedWalletPubkey.toBase58().substring(0, 6)}...`;
-                connectButton.style.display = 'none'; // Скрываем кнопку подключения
-                lockButton.disabled = false; // Активируем кнопку заморозки
+                connectButton.style.display = 'none';
+                lockButton.disabled = false;
 
                 // Проверка, что подключенный кошелек совпадает с тем, что в боте
                 if (connectedWalletPubkey.toBase58() !== userWallet) {
                     statusDiv.innerHTML = `<b>Ошибка:</b> Подключенный кошелек (${connectedWalletPubkey.toBase58().substring(0,4)}...)<br>не совпадает с кошельком из Telegram (${userWallet.substring(0,4)}...).<br>Пожалуйста, подключите правильный кошелек.`;
                     lockButton.disabled = true;
+                    document.getElementById('walletBalance').textContent = '';
+                    return;
                 }
+
+                // Показываем фиксированный баланс (демо)
+                document.getElementById('walletBalance').innerHTML = `Баланс: <b>2,34</b> SDCB`;
             } catch (err) {
                 statusDiv.textContent = `Ошибка подключения: ${err.message}`;
             }

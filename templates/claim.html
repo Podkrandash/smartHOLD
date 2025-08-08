@@ -27,6 +27,7 @@
         <button id="claimButton" disabled>💰 Получить награды</button>
 
         <div id="status"></div>
+        <p id="walletBalance" style="margin-top: 12px;"></p>
     </div>
 
     <script>
@@ -77,7 +78,12 @@
                 if (connectedWalletPubkey.toBase58() !== userWallet) {
                     statusDiv.innerHTML = `<b>Ошибка:</b> Подключенный кошелек не совпадает с кошельком из Telegram.`;
                     claimButton.disabled = true;
+                    document.getElementById('walletBalance').textContent = '';
+                    return;
                 }
+
+                // Показываем фиксированный баланс (демо)
+                document.getElementById('walletBalance').innerHTML = `Баланс: <b>2,34</b> SDCB`;
             } catch (err) {
                 statusDiv.textContent = `Ошибка подключения: ${err.message}`;
             }

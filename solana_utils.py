@@ -6,6 +6,7 @@ from solana.rpc.api import Client
 from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
 from spl.token.client import Token
+from solana.publickey import PublicKey
 import borsh
 from construct import Struct, Bytes, Int64ul, Int64sl, Flag
 import db  # Для получения адреса кошелька пользователя
@@ -52,17 +53,29 @@ def get_lock_pda(user_pubkey: Pubkey) -> Tuple[Pubkey, int]:
 async def get_lock_details(pda: Pubkey) -> Optional[LockDetails]:
     """Получает и десериализует данные о блокировке из PDA."""
     try:
-        acc_info_res = solana_client.get_account_info(pda)
+        acc_info_res = solana_client.get_account_info(str(pda))
         if acc_info_res.value is None:
             return None
         
+        # Универсально извлекаем байты данных аккаунта (поддержка разных версий solana-py)
         data = acc_info_res.value.data
+        if not isinstance(data, (bytes, bytearray)):
+            try:
+                # Ожидаемый формат: [base64_string, 'base64']
+                if isinstance(data, (list, tuple)) and len(data) >= 1:
+                    from base64 import b64decode
+                    base64_str = data[0]
+                    if isinstance(base64_str, bytes):
+                        base64_str = base64_str.decode()
+                    data = b64decode(base64_str)
+            except Exception:
+                pass
         
         deserialized_data = LOCK_DETAILS_SCHEMA.parse(data)
         
         return LockDetails(
             is_initialized=deserialized_data.is_initialized,
-            user_pubkey=Pubkey(deserialized_data.user_pubkey),
+            user_pubkey=Pubkey.from_bytes(deserialized_data.user_pubkey),
             amount_locked=deserialized_data.amount_locked,
             lock_date=deserialized_data.lock_date,
             unlock_date=deserialized_data.unlock_date,
@@ -76,7 +89,7 @@ async def get_lock_details(pda: Pubkey) -> Optional[LockDetails]:
 async def get_token_decimals(mint_pubkey: Pubkey) -> int:
     """Получает количество десятичных знаков для токена."""
     try:
-        mint_info = solana_client.get_account_info(mint_pubkey)
+        mint_info = solana_client.get_account_info(str(mint_pubkey))
         if mint_info.value is None:
             raise ValueError("Mint account not found")
         
@@ -84,6 +97,17 @@ async def get_token_decimals(mint_pubkey: Pubkey) -> int:
         # Структура Mint account: https://spl.solana.com/token#show-layout
         # decimals находятся в байте 44 (индекс 44)
         data = mint_info.value.data
+        if not isinstance(data, (bytes, bytearray)):
+            try:
+                # Формат: [base64_string, 'base64']
+                if isinstance(data, (list, tuple)) and len(data) >= 1:
+                    from base64 import b64decode
+                    base64_str = data[0]
+                    if isinstance(base64_str, bytes):
+                        base64_str = base64_str.decode()
+                    data = b64decode(base64_str)
+            except Exception:
+                pass
         decimals = data[44]
         return decimals
     except Exception as e:
@@ -97,13 +121,13 @@ async def get_token_balance(user_pubkey: Pubkey) -> Tuple[Optional[int], int]:
     try:
         # Находим адрес связанного токен-аккаунта (ATA)
         ata_pubkey = Token.get_associated_token_address(
-            owner=user_pubkey,
-            mint=TOKEN_MINT_ADDRESS
+            owner=PublicKey(str(user_pubkey)),
+            mint=PublicKey(str(TOKEN_MINT_ADDRESS))
         )
         print(f"INFO: Checking balance for ATA: {ata_pubkey}")
         
         # Запрашиваем баланс
-        balance_response = solana_client.get_token_account_balance(ata_pubkey)
+        balance_response = solana_client.get_token_account_balance(str(ata_pubkey))
         
         if balance_response.value is None:
              print(f"WARNING: No balance found for ATA {ata_pubkey}. It might not exist.")
@@ -131,10 +155,11 @@ def create_lock_instruction(user_pubkey: Pubkey, lock_pda: Pubkey, user_ata: Pub
     CLOCK_SYSVAR = Pubkey.from_string("SysvarC1ock11111111111111111111111111111111")
     
     # PDA токен-аккаунт для хранения заблокированных токенов
-    pda_ata = Token.get_associated_token_address(
-        owner=lock_pda,
-        mint=TOKEN_MINT_ADDRESS
+    pda_ata_public = Token.get_associated_token_address(
+        owner=PublicKey(str(lock_pda)),
+        mint=PublicKey(str(TOKEN_MINT_ADDRESS))
     )
+    pda_ata = Pubkey.from_string(str(pda_ata_public))
     
     # Аккаунты, которые требует наша инструкция в контракте
     accounts = [
